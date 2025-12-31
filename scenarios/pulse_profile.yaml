@@ -1,0 +1,38 @@
+name: "Pulse_Charge_Discharge"
+description: "Pulse charge-discharge profile"
+duration_sec: 3600
+segments:
+  - time_range: [0, 300]
+    current_a: 100
+    description: "Charge pulse 1 (100A for 5 min)"
+  - time_range: [300, 600]
+    current_a: 0
+    description: "Rest period 1 (5 min)"
+  - time_range: [600, 900]
+    current_a: -100
+    description: "Discharge pulse 1 (-100A for 5 min)"
+  - time_range: [900, 1200]
+    current_a: 0
+    description: "Rest period 2 (5 min)"
+  - time_range: [1200, 1500]
+    current_a: 100
+    description: "Charge pulse 2 (100A for 5 min)"
+  - time_range: [1500, 1800]
+    current_a: 0
+    description: "Rest period 3 (5 min)"
+  - time_range: [1800, 2100]
+    current_a: -100
+    description: "Discharge pulse 2 (-100A for 5 min)"
+  - time_range: [2100, 2400]
+    current_a: 0
+    description: "Rest period 4 (5 min)"
+  - time_range: [2400, 2700]
+    current_a: 50
+    description: "Constant charge (50A for 5 min)"
+  - time_range: [2700, 3000]
+    current_a: -50
+    description: "Constant discharge (-50A for 5 min)"
+  - time_range: [3000, 3600]
+    current_a: 0
+    description: "Final rest period (10 min)"
+

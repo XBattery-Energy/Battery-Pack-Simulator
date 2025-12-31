@@ -1,0 +1,8 @@
+name: "Constant_Charge"
+description: "Constant current charge from 20% to 80% SOC"
+duration_sec: 3600
+segments:
+  - time_range: [0, 3600]
+    current_a: 50
+    description: "Constant charge at 0.5C (50A)"
+

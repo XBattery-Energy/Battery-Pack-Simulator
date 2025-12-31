@@ -1,0 +1,8 @@
+name: "Constant_Discharge"
+description: "Constant current discharge from 80% to 20% SOC"
+duration_sec: 3600
+segments:
+  - time_range: [0, 3600]
+    current_a: -100
+    description: "Constant discharge at 1C (100A)"
+

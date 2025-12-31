@@ -1,0 +1,11 @@
+name: "Charge_Discharge_Cycle"
+description: "Complete charge-discharge cycle for testing"
+duration_sec: 7200
+segments:
+  - time_range: [0, 3600]
+    current_a: 50
+    description: "Constant charge at 0.5C (50A) for 1 hour"
+  - time_range: [3600, 7200]
+    current_a: -100
+    description: "Constant discharge at 1C (100A) for 1 hour"
+
