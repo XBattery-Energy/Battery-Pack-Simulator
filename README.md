@@ -237,7 +237,7 @@ Battery-Pack-Simulator/
 │   ├── discharge_profile.yaml
 │   ├── mixed_profile.yaml
 │   └── pulse_profile.yaml
-├── tests/
+├── tests_legacy/
 │   ├── test_cell_model.py
 │   ├── test_pack_model.py
 │   ├── test_afe_wrapper.py
@@ -255,13 +255,13 @@ Run unit tests:
 
 ```bash
 # Run all tests
-pytest tests/
+pytest tests_legacy/
 
 # Run specific test file
-pytest tests/test_cell_model.py
+pytest tests_legacy/test_cell_model.py
 
 # Run with verbose output
-pytest tests/ -v
+pytest tests_legacy/ -v
 ```
 
 Run integration test:
@@ -435,7 +435,7 @@ For issues, feature requests, or contributions, please contact the XBattery Ener
 ## 📚 Additional Resources
 
 - **Codebase Analysis:** See `CODEBASE_ANALYSIS.md` for detailed technical analysis
-- **Test Files:** See `tests/` directory for usage examples
+- **Test Files:** See `tests_legacy/` directory for usage examples
 - **Scenarios:** See `scenarios/` directory for YAML profile examples
 
 ---
