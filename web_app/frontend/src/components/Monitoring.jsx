@@ -34,7 +34,7 @@ function Monitoring() {
 
   useEffect(() => {
     // Connect to WebSocket
-    socketRef.current = io('http://localhost:5000')
+    socketRef.current = io('http://localhost:5050')
 
     socketRef.current.on('simulation_data', (frameData) => {
       setCurrentState(frameData)

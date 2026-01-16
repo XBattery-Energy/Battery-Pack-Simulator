@@ -54,3 +54,13 @@ output_*/
 **/output_*/
 pc_simulator/output/
 pc_simulator/output_*/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary log files
+*_err.txt
+*_out.txt
+flask_*.txt

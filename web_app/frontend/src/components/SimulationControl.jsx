@@ -47,10 +47,18 @@ function SimulationControl() {
     elapsed_time: 0.0,
   })
   
+  // Generate default session name with date
+  const generateSessionName = () => {
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '') // YYYYMMDD
+    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '') // HHMMSS
+    return `Simulation_${dateStr}_${timeStr}`
+  }
+
   // Session configuration state
   const [sessionSettings, setSessionSettings] = useState({
-    session_name: '',
-    simulation_mode: 'custom', // 'custom', 'charge', 'discharge'
+    session_name: generateSessionName(),
+    simulation_mode: '', // Empty - user must select
     initial_soc_pct: 50.0,
     current_amp: 50.0,
     duration_sec: 3600.0,
@@ -67,7 +75,7 @@ function SimulationControl() {
 
   useEffect(() => {
     // Connect to WebSocket
-    const newSocket = io('http://localhost:5000')
+    const newSocket = io('http://localhost:5050')
     setSocket(newSocket)
 
     newSocket.on('simulation_status', (data) => {
@@ -156,8 +164,35 @@ function SimulationControl() {
     setMessage(null)
 
     try {
+      // Validate simulation mode is selected (must be 'charge' or 'discharge')
+      if (!sessionSettings.simulation_mode || 
+          sessionSettings.simulation_mode === '' || 
+          (sessionSettings.simulation_mode !== 'charge' && sessionSettings.simulation_mode !== 'discharge')) {
+        setMessage({ type: 'error', text: 'Please select a Simulation Mode: Charge or Discharge' })
+        setLoading(false)
+        return
+      }
+
+      // Check if duration is 0 (continuous mode) and warn user
+      if (sessionSettings.duration_sec === 0 && !sessionSettings.use_target_soc) {
+        const confirmed = window.confirm(
+          'Duration is set to 0 (continuous mode). The simulation will run indefinitely until you click Stop. Continue?'
+        )
+        if (!confirmed) {
+          setLoading(false)
+          return
+        }
+      }
+
+      // Auto-generate session name if empty
+      let sessionName = sessionSettings.session_name
+      if (!sessionName || sessionName.trim() === '') {
+        sessionName = generateSessionName()
+        setSessionSettings(prev => ({ ...prev, session_name: sessionName }))
+      }
+      
       // Save current session settings
-      localStorage.setItem('session_settings', JSON.stringify(sessionSettings))
+      localStorage.setItem('session_settings', JSON.stringify({ ...sessionSettings, session_name: sessionName }))
       
       // Load master settings
       const masterSettings = JSON.parse(localStorage.getItem('master_settings') || '{}')
@@ -181,7 +216,7 @@ function SimulationControl() {
       const mergedMasterSettings = { ...defaultMasterSettings, ...masterSettings }
       
       // Prepare config based on simulation mode
-      let config = { ...mergedMasterSettings, ...sessionSettings }
+      let config = { ...mergedMasterSettings, ...sessionSettings, session_name: sessionName }
       
       // Ensure required fields are present
       if (!config.cell_capacity_ah) config.cell_capacity_ah = 100.0
@@ -190,22 +225,23 @@ function SimulationControl() {
       if (config.current_amp === undefined || config.current_amp === null) config.current_amp = 50.0
       
       // Handle charge/discharge cycle modes
+      // Frontend sends positive current_amp for both modes
+      // Backend converts: charge -> negative (increases SOC), discharge -> positive (decreases SOC)
       if (sessionSettings.simulation_mode === 'charge') {
-        config.current_amp = Math.abs(sessionSettings.current_amp) // Ensure positive
+        config.current_amp = Math.abs(sessionSettings.current_amp) // Send positive, backend converts to negative
         config.simulation_mode = 'charge'
         if (sessionSettings.use_target_soc && sessionSettings.target_soc_pct) {
           config.target_soc_pct = sessionSettings.target_soc_pct
           config.duration_sec = 0 // Use target SOC instead
         }
       } else if (sessionSettings.simulation_mode === 'discharge') {
-        config.current_amp = -Math.abs(sessionSettings.current_amp) // Ensure negative
+        config.current_amp = Math.abs(sessionSettings.current_amp) // Send positive, backend keeps positive
         config.simulation_mode = 'discharge'
         if (sessionSettings.use_target_soc && sessionSettings.target_soc_pct) {
           config.target_soc_pct = sessionSettings.target_soc_pct
           config.duration_sec = 0 // Use target SOC instead
         }
       }
-      // Custom mode: use current_amp as-is (can be positive or negative)
 
       console.log('Starting simulation with config:', config)
       console.log('Config keys:', Object.keys(config))
@@ -336,7 +372,8 @@ function SimulationControl() {
                     label="Session Name"
                     value={sessionSettings.session_name}
                     onChange={handleSessionChange('session_name')}
-                    placeholder="Optional identifier"
+                    placeholder="Auto-generated if empty"
+                    helperText={`Auto-generated: ${generateSessionName()}`}
                     size="small"
                   />
                 </Grid>
@@ -352,49 +389,26 @@ function SimulationControl() {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Simulation Mode</InputLabel>
+                  <FormControl fullWidth size="small" required>
+                    <InputLabel>Simulation Mode *</InputLabel>
                     <Select
                       value={sessionSettings.simulation_mode}
-                      label="Simulation Mode"
+                      label="Simulation Mode *"
                       onChange={handleSessionChange('simulation_mode')}
+                      required
+                      error={!sessionSettings.simulation_mode}
+                      displayEmpty={false}
                     >
-                      <MenuItem value="custom">Custom Current</MenuItem>
                       <MenuItem value="charge">Charge Cycle</MenuItem>
                       <MenuItem value="discharge">Discharge Cycle</MenuItem>
                     </Select>
+                    {!sessionSettings.simulation_mode && (
+                      <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                        Please select Charge or Discharge
+                      </Typography>
+                    )}
                   </FormControl>
                 </Grid>
-
-                {/* Custom Mode Fields */}
-                {sessionSettings.simulation_mode === 'custom' && (
-                  <>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        label="Current (A)"
-                        type="number"
-                        value={sessionSettings.current_amp}
-                        onChange={handleSessionChange('current_amp')}
-                        inputProps={{ step: 0.1 }}
-                        helperText="+ = charge, - = discharge"
-                        size="small"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        label="Duration (s)"
-                        type="number"
-                        value={sessionSettings.duration_sec}
-                        onChange={handleSessionChange('duration_sec')}
-                        inputProps={{ step: 1, min: 0 }}
-                        helperText="0 = continuous"
-                        size="small"
-                      />
-                    </Grid>
-                  </>
-                )}
 
                 {/* Charge/Discharge Cycle Fields */}
                 {(sessionSettings.simulation_mode === 'charge' || sessionSettings.simulation_mode === 'discharge') && (
@@ -445,8 +459,9 @@ function SimulationControl() {
                           value={sessionSettings.duration_sec}
                           onChange={handleSessionChange('duration_sec')}
                           inputProps={{ step: 1, min: 0 }}
-                          helperText="0 = continuous"
+                          helperText={sessionSettings.duration_sec === 0 ? "0 = continuous (use Stop button to end)" : "0 = continuous"}
                           size="small"
+                          error={sessionSettings.duration_sec === 0}
                         />
                       </Grid>
                     )}
@@ -495,7 +510,7 @@ function SimulationControl() {
                 size="large"
                 startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <PlayArrowIcon />}
                 onClick={handleStart}
-                disabled={loading || status.running}
+                disabled={loading || status.running || !sessionSettings.simulation_mode}
               >
                 Start Simulation
               </Button>

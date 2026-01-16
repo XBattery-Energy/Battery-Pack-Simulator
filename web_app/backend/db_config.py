@@ -28,7 +28,7 @@ except ImportError:
 # SECURITY: Database credentials MUST be provided via environment variables
 # Never hardcode passwords in source code. Use .env file or environment variables.
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '148.113.31.152'),
+    'host': os.getenv('DB_HOST', '148.113.31.151'),
     'port': int(os.getenv('DB_PORT', '3306')),
     'database': os.getenv('DB_NAME', 'appdb'),
     'user': os.getenv('DB_USER'),  # REQUIRED - no default
@@ -49,4 +49,4 @@ if not DB_CONFIG['user'] or not DB_CONFIG['password']:
     )
 
 # Alternative host (for failover)
-DB_SECONDARY_HOST = os.getenv('DB_SECONDARY_HOST', '148.113.31.149')
+DB_SECONDARY_HOST = os.getenv('DB_SECONDARY_HOST', '148.113.31.151')

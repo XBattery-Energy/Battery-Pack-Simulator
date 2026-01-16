@@ -117,7 +117,7 @@ simulation_state = {
     'session_id': None
 }
 
-# Initialize database
+# Initialize database (lazy - no blocking at startup)
 bms_db = BMSDatabase()
 
 # Thread lock for simulation state
@@ -188,38 +188,53 @@ class SimulationManager:
                 
                 # Initialize UART if port specified
                 uart_port = config.get('uart_port')
-                if uart_port:
+                if uart_port and uart_port.strip():
                     protocol = config.get('protocol', 'mcu')
                     bidirectional = config.get('bidirectional', False)
                     
-                    if bidirectional and BIDIRECTIONAL_AVAILABLE:
-                        self.uart = BidirectionalUART(
-                            port=uart_port,
-                            baudrate=config.get('baudrate', 921600),
-                            tx_rate_hz=config.get('frame_rate_hz', 50.0),
-                            verbose=config.get('verbose', False)
-                        )
-                        self.uart.start()
-                    elif protocol == 'xbb':
-                        self.uart = XBBUARTTransmitter(
-                            port=uart_port,
-                            baudrate=config.get('baudrate', 921600),
-                            frame_rate_hz=config.get('frame_rate_hz', 1.0),
-                            verbose=config.get('verbose', False)
-                        )
-                        self.uart.start()
-                    elif protocol == 'mcu':
-                        self.uart = MCUCompatibleUARTTransmitter(
-                            port=uart_port,
-                            baudrate=config.get('baudrate', 921600),
-                            frame_rate_hz=config.get('frame_rate_hz', 50.0),
-                            verbose=config.get('verbose', False),
-                            num_strings=1,
-                            num_modules=1,
-                            num_cells=16,
-                            num_temp_sensors=16
-                        )
-                        self.uart.start()
+                    print(f"[SIM] Step 3: Initializing UART on port {uart_port}...")
+                    try:
+                        if bidirectional and BIDIRECTIONAL_AVAILABLE:
+                            self.uart = BidirectionalUART(
+                                port=uart_port,
+                                baudrate=config.get('baudrate', 921600),
+                                tx_rate_hz=config.get('frame_rate_hz', 50.0),
+                                verbose=config.get('verbose', False)
+                            )
+                            if not self.uart.start():
+                                print(f"[SIM] Warning: Failed to start bidirectional UART on {uart_port}")
+                                self.uart = None
+                        elif protocol == 'xbb':
+                            self.uart = XBBUARTTransmitter(
+                                port=uart_port,
+                                baudrate=config.get('baudrate', 921600),
+                                frame_rate_hz=config.get('frame_rate_hz', 1.0),
+                                verbose=config.get('verbose', False)
+                            )
+                            if not self.uart.start():
+                                print(f"[SIM] Warning: Failed to start XBB UART on {uart_port}")
+                                self.uart = None
+                        elif protocol == 'mcu':
+                            self.uart = MCUCompatibleUARTTransmitter(
+                                port=uart_port,
+                                baudrate=config.get('baudrate', 921600),
+                                frame_rate_hz=config.get('frame_rate_hz', 50.0),
+                                verbose=config.get('verbose', False),
+                                num_strings=1,
+                                num_modules=1,
+                                num_cells=16,
+                                num_temp_sensors=16
+                            )
+                            if not self.uart.start():
+                                print(f"[SIM] Warning: Failed to start MCU UART on {uart_port}")
+                                self.uart = None
+                        
+                        if self.uart:
+                            print(f"[SIM] Step 3: UART initialized successfully on {uart_port}")
+                    except Exception as e:
+                        log_exception(type(e), e, e.__traceback__, context="SimulationManager: UART initialization")
+                        print(f"[SIM] Warning: UART initialization failed: {e}. Continuing without UART.")
+                        self.uart = None
                 
                 # Load fault scenario if specified
                 fault_scenario = config.get('fault_scenario')
@@ -238,22 +253,20 @@ class SimulationManager:
                         print(f"[SIM] Warning: Could not load fault scenario: {e}")
                         self.fault_injector = None
                 
-                print(f"[SIM] Step 4: Setting simulation state...")
+                print(f"[SIM] Step 4: Validating simulation mode...")
+                # Validate simulation_mode is 'charge' or 'discharge' (mandatory)
+                simulation_mode = config.get('simulation_mode', '').lower()
+                if simulation_mode not in ['charge', 'discharge']:
+                    error_msg = f"Invalid simulation_mode: '{simulation_mode}'. Must be 'charge' or 'discharge'."
+                    print(f"[SIM] ERROR: {error_msg}")
+                    return {'success': False, 'error': error_msg}
+                
+                print(f"[SIM] Step 5: Setting simulation state...")
                 self.config = config
                 self.running = True
                 self.paused = False
                 self.start_time = time.time()
                 self.frame_count = 0
-                
-                print(f"[SIM] Step 5: Creating database session...")
-                # Create database session
-                try:
-                    session_name = config.get('session_name', f"Session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-                    self.session_id = bms_db.create_session(session_name=session_name, config=config)
-                    print(f"[SIM] Step 5: Database session created: {self.session_id}")
-                except Exception as e:
-                    log_exception(type(e), e, e.__traceback__, context="SimulationManager: Database session creation")
-                    raise
                 
                 print(f"[SIM] Step 6: Setting up BMS data callback...")
                 # Set up BMS data callback if bidirectional UART is used
@@ -276,7 +289,7 @@ class SimulationManager:
                     raise
                 
                 print(f"[SIM] Simulation started successfully!")
-                return {'success': True, 'message': 'Simulation started'}
+                result = {'success': True, 'message': 'Simulation started'}
             
             except Exception as e:
                 # DIRECT FILE WRITE as backup - bypass logger completely
@@ -329,7 +342,22 @@ class SimulationManager:
                         error_msg += f'\nLocation: {tb_lines[-1].strip() if tb_lines else "Unknown"}'
                 
                 print(f"[SIM] Returning error: {error_msg}")
-                return {'success': False, 'error': error_msg}
+                result = {'success': False, 'error': error_msg}
+            
+            # Create database session AFTER releasing the lock to avoid blocking API response
+            if result.get('success'):
+                print(f"[SIM] Step 5: Creating database session (async)...")
+                try:
+                    session_name = config.get('session_name', f"Session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+                    self.session_id = bms_db.create_session(session_name=session_name, config=config)
+                    print(f"[SIM] Step 5: Database session created: {self.session_id}")
+                except Exception as e:
+                    log_exception(type(e), e, e.__traceback__, context="SimulationManager: Database session creation")
+                    # Don't fail simulation if database session creation fails
+                    print(f"[SIM] Warning: Database session creation failed: {e}")
+                    self.session_id = None
+            
+            return result
     
     def stop_simulation(self):
         """Stop simulation."""
@@ -405,17 +433,22 @@ class SimulationManager:
         try:
             dt_ms = 1000.0 / self.config.get('frame_rate_hz', 50.0)
             
-            # Handle simulation mode (charge/discharge cycle or custom)
-            simulation_mode = self.config.get('simulation_mode', 'custom')
+            # Handle simulation mode (charge or discharge - mandatory)
+            simulation_mode = self.config.get('simulation_mode', 'charge')  # Default to charge if not set
             # Ensure current_amp is numeric
             current_amp = float(self.config.get('current_amp', 50.0))
             
+            # Note: In cell_model, positive current = discharge (decreases SOC), negative current = charge (increases SOC)
             if simulation_mode == 'charge':
-                current_ma = abs(current_amp) * 1000.0  # Positive for charge
+                current_ma = -abs(current_amp) * 1000.0  # Negative current for charge (increases SOC)
+                print(f"[SIM] Charge mode: current_amp={current_amp}A -> current_ma={current_ma}mA (negative, SOC will INCREASE)")
             elif simulation_mode == 'discharge':
-                current_ma = -abs(current_amp) * 1000.0  # Negative for discharge
-            else:  # custom
-                current_ma = current_amp * 1000.0
+                current_ma = abs(current_amp) * 1000.0  # Positive current for discharge (decreases SOC)
+                print(f"[SIM] Discharge mode: current_amp={current_amp}A -> current_ma={current_ma}mA (positive, SOC will DECREASE)")
+            else:
+                # Should not happen due to validation, but fallback to charge
+                print(f"[SIM] WARNING: Unknown simulation_mode '{simulation_mode}', defaulting to charge")
+                current_ma = -abs(current_amp) * 1000.0
             
             duration_sec = float(self.config.get('duration_sec', 0.0))
             target_soc_pct = self.config.get('target_soc_pct')
@@ -465,13 +498,16 @@ class SimulationManager:
                     log_exception(type(e), e, e.__traceback__, context="Simulation Loop: Fault Injector Update")
             
                 # Check current gating (bidirectional mode)
+                # Note: current_ma > 0 = discharge, current_ma < 0 = charge
                 effective_current_ma = current_ma
                 try:
                     if self.uart and hasattr(self.uart, 'get_bms_state'):
                         bms_state = self.uart.get_bms_state()
-                        if current_ma > 0 and not bms_state.get('mosfet_charge', True):
+                        # Positive current (discharge) requires discharge MOSFET
+                        if current_ma > 0 and not bms_state.get('mosfet_discharge', True):
                             effective_current_ma = 0.0
-                        elif current_ma < 0 and not bms_state.get('mosfet_discharge', True):
+                        # Negative current (charge) requires charge MOSFET
+                        elif current_ma < 0 and not bms_state.get('mosfet_charge', True):
                             effective_current_ma = 0.0
                 except Exception as e:
                     log_exception(type(e), e, e.__traceback__, context="Simulation Loop: BMS State Check")
@@ -878,12 +914,25 @@ def get_fault_scenario(scenario_name: str):
 
 # Database and Analysis Endpoints
 
+@app.route('/api/sessions-test', methods=['GET'])
+def sessions_test():
+    """Simple test endpoint."""
+    return jsonify({'test': 'ok', 'timestamp': datetime.now().isoformat()})
+
+
 @app.route('/api/sessions', methods=['GET'])
 def list_sessions():
     """List all simulation sessions."""
     limit = request.args.get('limit', 50, type=int)
-    sessions = bms_db.get_sessions(limit=limit)
-    return jsonify({'sessions': sessions})
+    print(f"[API] /api/sessions called with limit={limit}")
+    
+    try:
+        sessions = bms_db.get_sessions(limit=limit)
+        print(f"[API] Found {len(sessions)} sessions")
+        return jsonify({'sessions': sessions})
+    except Exception as e:
+        print(f"[API] Error: {e}")
+        return jsonify({'sessions': [], 'error': str(e)}), 500
 
 
 @app.route('/api/sessions/<int:session_id>', methods=['GET'])
@@ -1100,4 +1149,4 @@ if __name__ == '__main__':
     monitor = get_monitor()
     print(f"[SERVER] Log monitor initialized")
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5050, debug=False, allow_unsafe_werkzeug=True)
